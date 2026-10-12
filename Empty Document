@@ -1,0 +1,619 @@
+## Complete DevSecOps project architecture
+
+ Build a **microservices application on AWS EKS** with **GitHub Actions for CI** and **Argo CD for GitOps CD**. Use Terraform for infrastructure, ECR for images, Helm/Kustomize for Kubernetes manifests, and security gates throughout CI/CD.
+
+```
+Developer
+   │
+   ▼
+GitHub ── Pull Request
+   │
+   ├── SAST ─────────────── SonarQube
+   ├── Secrets ──────────── Gitleaks
+   ├── Dependency Scan ──── Trivy / Dependabot
+   ├── IaC Scan ─────────── Checkov
+   └── Tests
+          │
+          ▼
+   GitHub Actions CI
+          │
+          ├── Docker Build
+          ├── Trivy Image Scan
+          ├── SBOM
+          └── Push image
+                │
+                ▼
+             AWS ECR
+                │
+                ▼
+      Update GitOps Repository
+                │
+                ▼
+          Argo CD detects
+             Git change
+                │
+                ▼
+          AWS EKS Cluster
+        ┌───────┴────────┐
+        │                │
+     Dev/Staging       Prod
+        │                │
+        └───────┬────────┘
+                ▼
+       Prometheus/Grafana
+       CloudWatch / Alerts
+```
+
+ ### Recommended stack
+
+ | Area | Tool |
+| --- | --- |
+| Cloud | AWS |
+| Kubernetes | EKS |
+| Infrastructure | Terraform |
+| CI | GitHub Actions |
+| CD/GitOps | Argo CD |
+| Container Registry | Amazon ECR |
+| Packaging | Helm |
+| Secrets | AWS Secrets Manager + External Secrets |
+| SAST | SonarQube |
+| Dependency/SCA | Trivy + Dependabot |
+| Secrets scanning | Gitleaks |
+| Container scanning | Trivy |
+| IaC security | Checkov |
+| Kubernetes policies | Kyverno |
+| SBOM | Syft |
+| Image signing | Cosign |
+| Runtime security | Falco |
+| Monitoring | Prometheus + Grafana |
+| AWS monitoring | CloudWatch |
+| Logging | Fluent Bit + CloudWatch |
+| Load balancing | AWS Load Balancer Controller |
+| Autoscaling | Karpenter/HPA |
+| DNS | Route 53 |
+| TLS | cert-manager + ACM where appropriate |
+
+AWS specifically recommends addressing IAM, pod security, runtime security, networking, secrets, encryption, image security and incident response when securing EKS.  AWS Documentation
+
+ ### CI pipeline
+
+ **PR → security → test → build → scan → publish**
+
+1. Checkout code.
+2. Run unit/integration tests.
+3. SonarQube SAST/quality gate.
+4. Gitleaks secret scan.
+5. Trivy dependency/filesystem scan.
+6. Build Docker image.
+7. Trivy container-image scan.
+8. Generate SBOM with Syft.
+9. Sign image with Cosign.
+10. Push image to ECR.
+11. GitHub Actions updates the **GitOps repository** with the immutable image tag/digest.
+
+ Use GitHub Actions **OIDC** rather than long-lived AWS access keys; GitHub recommends OIDC for cloud authentication and artifact attestations for software provenance.  GitHub Docs
+
+ ### CD pipeline
+
+ Do **not** have GitHub Actions directly deploy with `kubectl`.
+
+ Instead:
+
+```
+GitHub Actions
+      │
+      ▼
+Build image → ECR
+      │
+      ▼
+Update GitOps repo
+      │
+      ▼
+Argo CD
+      │
+      ▼
+EKS
+```
+
+ Argo CD continuously reconciles the Kubernetes state against Git, giving you Git history, drift detection, automated synchronization and rollback capability.  AWS Documentation+1
+
+ ### Repository structure
+
+```
+app-repo/
+├── src/
+├── tests/
+├── Dockerfile
+├── .github/
+│   └── workflows/
+│       ├── ci.yml
+│       ├── security.yml
+│       └── release.yml
+└── README.md
+
+gitops-repo/
+├── apps/
+│   └── myapp/
+│       ├── base/
+│       │   ├── deployment.yaml
+│       │   ├── service.yaml
+│       │   └── kustomization.yaml
+│       └── overlays/
+│           ├── dev/
+│           ├── staging/
+│           └── prod/
+├── argocd/
+│   ├── projects/
+│   ├── applications/
+│   └── applicationsets/
+└── policies/
+    └── kyverno/
+```
+
+ ### Infrastructure
+
+ Terraform should create:
+
+```
+VPC
+├── Public subnets
+├── Private subnets
+├── NAT Gateway
+└── Route tables
+
+EKS
+├── Control plane
+├── Managed/Karpenter nodes
+├── IAM / EKS Access Entries
+├── AWS Load Balancer Controller
+└── Argo CD
+
+Supporting AWS
+├── ECR
+├── Secrets Manager
+├── KMS
+├── CloudWatch
+├── Route 53
+└── S3
+```
+
+ For production, use least-privilege IAM, Kubernetes RBAC, network controls, encryption, image security and audit logging. AWS's current EKS guidance explicitly covers these areas.  AWS Documentation
+
+ ### DevSecOps gates
+
+ A strong project should demonstrate:
+
+```
+Code
+ ↓
+Gitleaks
+ ↓
+SAST
+ ↓
+Dependency Scan
+ ↓
+Unit Tests
+ ↓
+Terraform → Checkov
+ ↓
+Docker Build
+ ↓
+Trivy Image Scan
+ ↓
+SBOM → Syft
+ ↓
+Cosign Sign
+ ↓
+ECR
+ ↓
+Kyverno Policy
+ ↓
+Argo CD
+ ↓
+EKS
+ ↓
+Falco + Prometheus + Grafana
+```
+
+ For Kubernetes policy enforcement, **Kyverno** is particularly suitable because policies are Kubernetes resources and can also validate/mutate resources and enforce OCI image supply-chain controls.  AWS Documentation
+
+ ### The project I would build
+
+ A **3-tier Online Bookstore microservice**:
+
+```
+React Frontend
+      │
+      ▼
+API Gateway / Ingress
+      │
+ ┌────┴─────────┐
+ ▼              ▼
+User Service   Book Service
+      │              │
+      └──────┬───────┘
+             ▼
+        PostgreSQL
+```
+
+ Deploy **dev → staging → production** namespaces/environments, with Argo CD managing each environment. This gives you a realistic project demonstrating **AWS + Kubernetes + Terraform + GitHub Actions + GitOps + DevSecOps + observability**, rather than just a simple Docker deployment.
+ 
+ 
+ 
+ 
+ For a **Junior DevOps Engineer portfolio project**, I’d consider this a **strong 9/10 project in terms of technical coverage**.
+
+ Not because the architecture is automatically impressive, but because if you actually build and understand it, it demonstrates many of the skills junior DevOps roles commonly look for.
+
+ ### What your project demonstrates
+
+ | Skill | What your project shows |
+| --- | --- |
+| Linux | Server/container troubleshooting |
+| Git/GitHub | Version control + GitOps |
+| CI/CD | GitHub Actions + Argo CD |
+| Docker | Containerization |
+| Kubernetes | EKS, deployments, services, ingress |
+| AWS | EKS, ECR, IAM, VPC, CloudWatch, etc. |
+| Infrastructure as Code | Terraform |
+| DevSecOps | SAST, SCA, secrets, image/IaC scanning |
+| GitOps | Argo CD |
+| Security | IAM, RBAC, Kyverno, Cosign |
+| Monitoring | Prometheus + Grafana |
+| Logging | Fluent Bit + CloudWatch |
+| Networking | VPC, subnets, ingress/load balancing |
+| Observability | Metrics, logs and alerts |
+| Scalability | HPA/Karpenter |
+| Troubleshooting | Kubernetes/AWS/application failures |
+
+### But there's an important distinction
+
+ I'd separate **project complexity** from **job readiness**.
+
+ You could build this entire architecture by following tutorials and still struggle in a real junior DevOps interview.
+
+ What makes the project valuable is being able to explain **why you made each decision**.
+
+ For example, an interviewer might ask:
+
+ > "Why are you using Argo CD instead of deploying to EKS directly from GitHub Actions?"
+
+ You should be able to explain the GitOps model:
+
+```
+GitHub Actions
+      │
+      │ Build + Test + Security
+      ▼
+     ECR
+      │
+      │ update image reference
+      ▼
+ GitOps Repository
+      │
+      ▼
+   Argo CD
+      │
+      │ reconciliation
+      ▼
+     EKS
+```
+
+ Or:
+
+ > "What happens if someone manually changes a deployment in EKS?"
+
+ You should be able to explain **drift detection and reconciliation**.
+
+ Or:
+
+ > "Why shouldn't you put AWS\_ACCESS\_KEY\_ID and AWS\_SECRET\_ACCESS\_KEY in GitHub?"
+
+ You should understand GitHub Actions OIDC and short-lived AWS credentials.
+
+ Those explanations are what turn the project from **"I followed a DevOps tutorial"** into **"I understand DevOps."**
+
+ ## I'd build it in stages
+
+ Don't try to build the entire architecture at once.
+
+ ### Phase 1 — Application
+
+ Build your ecommerce application first.
+
+```
+Frontend
+   ↓
+Backend API
+   ↓
+Database
+```
+
+ Get it working locally with Docker Compose.
+
+ ### Phase 2 — Docker
+
+ Containerize everything.
+
+```
+frontend → Docker image
+backend  → Docker image
+database → container
+```
+
+ Understand:
+
+ - Dockerfile
+- multi-stage builds
+- image layers
+- environment variables
+- Docker networking
+- volumes
+- health checks
+
+ ### Phase 3 — AWS \+ Terraform
+
+ Build:
+
+```
+Terraform
+   ↓
+VPC
+   ↓
+EKS
+   ↓
+ECR
+```
+
+ Don't manually create everything through the AWS console.
+
+ The goal is:
+
+```
+terraform init
+terraform plan
+terraform apply
+```
+
+ and your infrastructure exists.
+
+ ### Phase 4 — Kubernetes
+
+ Deploy the application manually first.
+
+ Learn:
+
+```
+Pod
+Deployment
+Service
+ConfigMap
+Secret
+Ingress
+Namespace
+HPA
+RBAC
+```
+
+ Before introducing Argo CD, make sure you understand what Kubernetes is actually doing.
+
+ ### Phase 5 — GitHub Actions
+
+ Now automate:
+
+```
+git push
+   ↓
+GitHub Actions
+   ↓
+Tests
+   ↓
+Security scans
+   ↓
+Docker build
+   ↓
+ECR
+```
+
+ ### Phase 6 — Argo CD
+
+ Then introduce GitOps:
+
+```
+Application Repo
+       │
+       ▼
+GitHub Actions
+       │
+       ▼
+      ECR
+       │
+       ▼
+ GitOps Repo
+       │
+       ▼
+    Argo CD
+       │
+       ▼
+      EKS
+```
+
+ This is where the project starts becoming a genuinely interesting portfolio project.
+
+ ### Phase 7 — DevSecOps
+
+ Add your security tooling progressively:
+
+```
+Gitleaks
+   ↓
+SonarQube
+   ↓
+Trivy
+   ↓
+Checkov
+   ↓
+Syft
+   ↓
+Cosign
+   ↓
+Kyverno
+```
+
+ Don't just run the tools. **Intentionally introduce vulnerabilities and demonstrate that your pipeline catches them.**
+
+ For example:
+
+```
+Hardcoded AWS credential
+        ↓
+     Gitleaks
+        ↓
+       FAIL
+```
+
+ Or:
+
+```
+Terraform security misconfiguration
+        ↓
+      Checkov
+        ↓
+       FAIL
+```
+
+ Or:
+
+```
+Vulnerable package
+        ↓
+       Trivy
+        ↓
+       FAIL
+```
+
+ That's excellent material to discuss in an interview.
+
+ ## Phase 8 — Observability
+
+ Finally:
+
+```
+                    ┌── Prometheus
+                    │
+EKS ────────────────┼── Grafana
+                    │
+                    ├── CloudWatch
+                    │
+                    └── Fluent Bit
+```
+
+ Then intentionally kill a pod, make an application unhealthy, generate traffic, etc., and demonstrate how you detect and troubleshoot it.
+
+---
+
+ ## What would make it a 10/10 portfolio project?
+
+ Not adding **more and more tools**.
+
+ I'd actually recommend avoiding the "I used 37 DevOps tools" approach.
+
+ Instead, make the project **deep**.
+
+ For example, document:
+
+ ### Architecture
+
+ Explain why you chose:
+
+ - EKS
+- Terraform
+- GitHub Actions
+- Argo CD
+- ECR
+- Helm
+- Prometheus/Grafana
+
+ ### Security
+
+ Show:
+
+ - IAM design
+- GitHub OIDC
+- Kubernetes RBAC
+- secrets management
+- image scanning
+- IaC scanning
+- image signing
+- admission policies
+
+ ### CI/CD
+
+ Show exactly what happens from:
+
+```
+git push
+```
+
+ to:
+
+```
+Production deployment
+```
+
+ ### Failure scenarios
+
+ This is especially valuable.
+
+ Demonstrate:
+
+```
+❌ Failed unit tests
+❌ Failed security scan
+❌ Vulnerable Docker image
+❌ Bad Terraform configuration
+❌ Invalid Kubernetes manifest
+❌ Failed deployment
+❌ Pod crash
+❌ Application health failure
+❌ GitOps drift
+```
+
+ and explain how you diagnose each one.
+
+---
+
+ ## One thing I'd change from the original architecture
+
+ Since you're targeting a **junior** position, don't make the application itself unnecessarily complicated.
+
+ You don't need 15 microservices.
+
+ I'd use something like:
+
+```
+                Internet
+                   │
+                   ▼
+             AWS Load Balancer
+                   │
+                   ▼
+             React Frontend
+                   │
+                   ▼
+              Backend API
+              /         \
+             /           \
+            ▼             ▼
+       PostgreSQL       Redis
+```
+
+ Then put the DevOps complexity around the application rather than making the application itself extremely complex.
+
+ Your real learning objective is:
+
+ > **"Can I take an application from source code → secure CI → container → registry → GitOps → Kubernetes → AWS → monitoring → troubleshooting?"**
+
+ If you can genuinely demonstrate that end-to-end, you've got a **very solid junior DevOps portfolio project**.
+
+ And one final piece of advice: **build it yourself rather than copying an existing GitHub repository.** When you eventually get asked _"Why did you do this?"_ in an interview, your ability to explain the decisions and troubleshoot problems will matter much more than the number of technologies in your README.
